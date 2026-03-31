@@ -32,6 +32,10 @@ HEADERS = {
 }
 
 
+class FetchTimeoutError(Exception):
+    """Тимчасовий timeout під час завантаження Binance сторінки."""
+
+
 def _slots_from_json(html: str) -> tuple[int, int] | None:
     i = html.find(LEAD_ID)
     if i >= 0:
@@ -77,7 +81,7 @@ def fetch_html_playwright() -> str:
                 locale="ru-RU",
             )
             page = context.new_page()
-            page.goto(URL, wait_until="domcontentloaded", timeout=90_000)
+            page.goto(URL, wait_until="commit", timeout=90_000)
             try:
                 page.wait_for_function(
                     r"""() => {
@@ -90,6 +94,8 @@ def fetch_html_playwright() -> str:
             except PWTimeout:
                 pass
             return page.content()
+        except PWTimeout as e:
+            raise FetchTimeoutError("Playwright timeout while loading page") from e
         finally:
             browser.close()
 
@@ -147,6 +153,8 @@ def main() -> None:
                         f'<a href="{URL}">Відкрити ліда</a>'
                     )
                 prev_full = full
+        except FetchTimeoutError:
+            print(f"[{ts}] Timeout Binance сторінки, повтор через {interval} с.", flush=True)
         except Exception as e:
             print(f"[{ts}] Помилка: {e}", flush=True)
 
