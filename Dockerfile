@@ -1,9 +1,11 @@
-# Образ уже містить Python, Playwright і браузери (версію тега краще інколи оновлювати разом із локальним playwright).
+# Тег образу й версія playwright мають збігатися (браузери вже всередині образу).
 FROM mcr.microsoft.com/playwright/python:v1.58.0-jammy
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir "requests>=2.28.0,<3"
+# Явно ставимо playwright — на деяких збірках базовий образ без модуля в тому Python, що запускає CMD.
+RUN pip install --no-cache-dir "requests>=2.28.0,<3" "playwright==1.58.0" \
+    && python -c "from playwright.sync_api import sync_playwright"
 
 COPY main.py .
 
