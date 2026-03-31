@@ -1,0 +1,9 @@
+services:
+  checker:
+    build: .
+    restart: unless-stopped
+    # command: ["python", "main.py", "60"]  # інший інтервал (сек)
+    environment:
+      DOCKER: "1"
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
