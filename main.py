@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -106,8 +107,47 @@ def fetch_html_playwright() -> str:
             browser.close()
 
 
+def _terminate_fetch_subprocess(proc: subprocess.Popen[str]) -> None:
+    if proc.poll() is not None:
+        return
+    pid = proc.pid
+    if sys.platform == "win32":
+        proc.kill()
+        try:
+            proc.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            pass
+        return
+    try:
+        pgid = os.getpgid(pid)
+    except ProcessLookupError:
+        proc.kill()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        return
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        pass
+    if proc.poll() is None:
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            proc.kill()
+        try:
+            proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            pass
+
+
 def _fetch_html_with_iteration_timeout(seconds: float) -> str:
-    """Запускає fetch у дочірньому процесі; після `seconds` subprocess отримує TimeoutExpired і завершує дитину."""
+    """Fetch у дочірньому процесі; по таймауту — killpg, щоб не лишати chrome-headless після обриву."""
     child = Path(__file__).resolve().parent / "slot_fetch_child.py"
     if not child.is_file():
         raise FileNotFoundError(f"Не знайдено {child}")
@@ -115,18 +155,35 @@ def _fetch_html_with_iteration_timeout(seconds: float) -> str:
     fd, raw = tempfile.mkstemp(prefix="slot_", suffix=".html")
     os.close(fd)
     path = Path(raw)
+    proc: subprocess.Popen[str] | None = None
     try:
-        r = subprocess.run(
+        proc = subprocess.Popen(
             [sys.executable, str(child), str(path)],
-            timeout=seconds,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
+            start_new_session=sys.platform != "win32",
         )
-        if r.returncode != 0:
-            err = (r.stderr or r.stdout or "").strip() or f"код виходу {r.returncode}"
+        try:
+            stdout, stderr = proc.communicate(timeout=seconds)
+        except subprocess.TimeoutExpired:
+            _terminate_fetch_subprocess(proc)
+            try:
+                proc.communicate(timeout=15)
+            except subprocess.TimeoutExpired:
+                pass
+            raise subprocess.TimeoutExpired(proc.args, seconds) from None
+        if proc.returncode != 0:
+            err = (stderr or stdout or "").strip() or f"код виходу {proc.returncode}"
             raise RuntimeError(err)
         return path.read_text(encoding="utf-8", errors="replace")
     finally:
+        if proc is not None and proc.poll() is None:
+            _terminate_fetch_subprocess(proc)
+            try:
+                proc.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                pass
         path.unlink(missing_ok=True)
 
 

@@ -1,6 +1,8 @@
 services:
   checker:
     build: .
+    init: true
+    pids_limit: 4096
     restart: unless-stopped
     # command: ["python", "main.py", "60"]  # інший інтервал (сек)
     environment:
