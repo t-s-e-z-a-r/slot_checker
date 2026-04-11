@@ -5,6 +5,6 @@ services:
     # command: ["python", "main.py", "60"]  # інший інтервал (сек)
     environment:
       DOCKER: "1"
-      ITERATION_TIMEOUT_SEC: ${ITERATION_TIMEOUT_SEC:-30}
+      ITERATION_TIMEOUT_SEC: ${ITERATION_TIMEOUT_SEC:-60}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}

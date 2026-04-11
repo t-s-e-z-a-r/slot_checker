@@ -18,7 +18,7 @@ URL = "https://www.binance.com/ru/copy-trading/lead-details/4751838302089254401"
 LEAD_ID = "4751838302089254401"
 
 # Максимальний час однієї спроби завантажити сторінку (окремий процес; по таймауту процес завершується).
-ITERATION_TIMEOUT_SEC = float(os.getenv("ITERATION_TIMEOUT_SEC", "30"))
+ITERATION_TIMEOUT_SEC = float(os.getenv("ITERATION_TIMEOUT_SEC", "60"))
 
 SLOTS_RE = re.compile(
     r"\bt-subtitle2\b[^>]*>(\d+)\s*/\s*(\d+)\s*</div>",
