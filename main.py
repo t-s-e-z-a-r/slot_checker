@@ -11,8 +11,8 @@ import requests
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
-URL = "https://www.binance.com/ru/copy-trading/lead-details/4906010685108267264"
-LEAD_ID = "4906010685108267264"
+URL = "https://www.binance.com/ru/copy-trading/lead-details/4751838302089254401"
+LEAD_ID = "4751838302089254401"
 
 SLOTS_RE = re.compile(
     r"\bt-subtitle2\b[^>]*>(\d+)\s*/\s*(\d+)\s*</div>",
