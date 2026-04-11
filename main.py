@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 import requests
 
@@ -13,6 +16,9 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
 URL = "https://www.binance.com/ru/copy-trading/lead-details/4751838302089254401"
 LEAD_ID = "4751838302089254401"
+
+# Максимальний час однієї спроби завантажити сторінку (окремий процес; по таймауту процес завершується).
+ITERATION_TIMEOUT_SEC = float(os.getenv("ITERATION_TIMEOUT_SEC", "30"))
 
 SLOTS_RE = re.compile(
     r"\bt-subtitle2\b[^>]*>(\d+)\s*/\s*(\d+)\s*</div>",
@@ -100,6 +106,30 @@ def fetch_html_playwright() -> str:
             browser.close()
 
 
+def _fetch_html_with_iteration_timeout(seconds: float) -> str:
+    """Запускає fetch у дочірньому процесі; після `seconds` subprocess отримує TimeoutExpired і завершує дитину."""
+    child = Path(__file__).resolve().parent / "slot_fetch_child.py"
+    if not child.is_file():
+        raise FileNotFoundError(f"Не знайдено {child}")
+
+    fd, raw = tempfile.mkstemp(prefix="slot_", suffix=".html")
+    os.close(fd)
+    path = Path(raw)
+    try:
+        r = subprocess.run(
+            [sys.executable, str(child), str(path)],
+            timeout=seconds,
+            capture_output=True,
+            text=True,
+        )
+        if r.returncode != 0:
+            err = (r.stderr or r.stdout or "").strip() or f"код виходу {r.returncode}"
+            raise RuntimeError(err)
+        return path.read_text(encoding="utf-8", errors="replace")
+    finally:
+        path.unlink(missing_ok=True)
+
+
 def send_telegram_message(message: str) -> None:
     """Надсилає повідомлення в Telegram"""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
@@ -125,16 +155,19 @@ def send_telegram_message(message: str) -> None:
 
 def main() -> None:
     interval = float(sys.argv[1]) if len(sys.argv) > 1 else 30.0
-    # None — ще не було успішного парсу; True/False — чи було останнє значення «заповнено»
     prev_full: bool | None = None
 
     print(f"Опитування кожні {interval} с [Playwright]: {URL}", flush=True)
-    print("Підказка: playwright install chromium (один раз)", flush=True)
+    print(
+        f"Таймаут однієї ітерації: {ITERATION_TIMEOUT_SEC:.0f} с (ITERATION_TIMEOUT_SEC). "
+        "Підказка: playwright install chromium (один раз)",
+        flush=True,
+    )
 
     while True:
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         try:
-            html = fetch_html_playwright()
+            html = _fetch_html_with_iteration_timeout(ITERATION_TIMEOUT_SEC)
             pair = parse_slots(html)
             if pair is None:
                 print(
@@ -153,6 +186,12 @@ def main() -> None:
                         f'<a href="{URL}">Відкрити ліда</a>'
                     )
                 prev_full = full
+        except subprocess.TimeoutExpired:
+            print(
+                f"[{ts}] Ітерація перевищила {ITERATION_TIMEOUT_SEC:.0f} с — "
+                f"наступна через {interval} с.",
+                flush=True,
+            )
         except FetchTimeoutError:
             print(f"[{ts}] Timeout Binance сторінки, повтор через {interval} с.", flush=True)
         except Exception as e:

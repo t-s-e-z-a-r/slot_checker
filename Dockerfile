@@ -7,7 +7,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir "requests>=2.28.0,<3" "playwright==1.58.0" \
     && python -c "from playwright.sync_api import sync_playwright"
 
-COPY main.py .
+COPY main.py slot_fetch_child.py .
 
 ENV PYTHONUNBUFFERED=1
 ENV DOCKER=1
