@@ -15,10 +15,26 @@ import requests
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
-URL = "https://www.binance.com/ru/copy-trading/lead-details/4751838302089254401"
-LEAD_ID = "4751838302089254401"
+# (lead_id, url) — id для пошуку в JSON; url відкриває Playwright.
+LEADS: list[tuple[str, str]] = [
+    (
+        "4751838302089254401",
+        "https://www.binance.com/ru/copy-trading/lead-details/4751838302089254401",
+    ),
+    (
+        "4112571362754486785",
+        "https://www.binance.com/ru/copy-trading/lead-details/4112571362754486785"
+    ),
+    (
+        "4944132044517674496",
+        "https://www.binance.com/ru/copy-trading/lead-details/4944132044517674496"
+    ),
+    (
+        "4532994172262753536",
+        "https://www.binance.com/ru/copy-trading/lead-details/4532994172262753536"
+    ),
+]
 
-# Максимальний час однієї спроби завантажити сторінку (окремий процес; по таймауту процес завершується).
 ITERATION_TIMEOUT_SEC = float(os.getenv("ITERATION_TIMEOUT_SEC", "60"))
 
 SLOTS_RE = re.compile(
@@ -43,8 +59,8 @@ class FetchTimeoutError(Exception):
     """Тимчасовий timeout під час завантаження Binance сторінки."""
 
 
-def _slots_from_json(html: str) -> tuple[int, int] | None:
-    i = html.find(LEAD_ID)
+def _slots_from_json(html: str, lead_id: str) -> tuple[int, int] | None:
+    i = html.find(lead_id)
     if i >= 0:
         chunk = html[i : i + 400_000]
         cc = COPY_COUNT_CC.search(chunk)
@@ -65,14 +81,14 @@ def _slots_from_subtitle(html: str) -> tuple[int, int] | None:
     return int(m.group(1)), int(m.group(2))
 
 
-def parse_slots(html: str) -> tuple[int, int] | None:
-    pair = _slots_from_json(html)
+def parse_slots(html: str, lead_id: str) -> tuple[int, int] | None:
+    pair = _slots_from_json(html, lead_id)
     if pair is not None:
         return pair
     return _slots_from_subtitle(html)
 
 
-def fetch_html_playwright() -> str:
+def fetch_html_playwright(page_url: str) -> str:
     from playwright.sync_api import sync_playwright
     from playwright.sync_api import TimeoutError as PWTimeout
 
@@ -88,7 +104,7 @@ def fetch_html_playwright() -> str:
                 locale="ru-RU",
             )
             page = context.new_page()
-            page.goto(URL, wait_until="commit", timeout=90_000)
+            page.goto(page_url, wait_until="commit", timeout=90_000)
             try:
                 page.wait_for_function(
                     r"""() => {
@@ -146,8 +162,8 @@ def _terminate_fetch_subprocess(proc: subprocess.Popen[str]) -> None:
             pass
 
 
-def _fetch_html_with_iteration_timeout(seconds: float) -> str:
-    """Fetch у дочірньому процесі; по таймауту — killpg, щоб не лишати chrome-headless після обриву."""
+def _fetch_html_with_iteration_timeout(seconds: float, page_url: str) -> str:
+    """Fetch у дочірньому процесі; argv: child output_path page_url."""
     child = Path(__file__).resolve().parent / "slot_fetch_child.py"
     if not child.is_file():
         raise FileNotFoundError(f"Не знайдено {child}")
@@ -158,7 +174,7 @@ def _fetch_html_with_iteration_timeout(seconds: float) -> str:
     proc: subprocess.Popen[str] | None = None
     try:
         proc = subprocess.Popen(
-            [sys.executable, str(child), str(path)],
+            [sys.executable, str(child), str(path), page_url],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -212,47 +228,61 @@ def send_telegram_message(message: str) -> None:
 
 def main() -> None:
     interval = float(sys.argv[1]) if len(sys.argv) > 1 else 30.0
-    prev_full: bool | None = None
+    prev_full: dict[str, bool | None] = {lid: None for lid, _ in LEADS}
 
-    print(f"Опитування кожні {interval} с [Playwright]: {URL}", flush=True)
     print(
-        f"Таймаут однієї ітерації: {ITERATION_TIMEOUT_SEC:.0f} с (ITERATION_TIMEOUT_SEC). "
-        "Підказка: playwright install chromium (один раз)",
+        f"Опитування {len(LEADS)} лідів кожні {interval} с [Playwright], "
+        f"таймаут на один запит: {ITERATION_TIMEOUT_SEC:.0f} с",
         flush=True,
     )
+    for lid, u in LEADS:
+        print(f"  • {lid}  {u}", flush=True)
+    print("Підказка: playwright install chromium (один раз)", flush=True)
 
     while True:
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-        try:
-            html = _fetch_html_with_iteration_timeout(ITERATION_TIMEOUT_SEC)
-            pair = parse_slots(html)
-            if pair is None:
+        for lead_id, page_url in LEADS:
+            try:
+                html = _fetch_html_with_iteration_timeout(
+                    ITERATION_TIMEOUT_SEC, page_url
+                )
+                pair = parse_slots(html, lead_id)
+                if pair is None:
+                    print(
+                        f"[{ts}] {lead_id} — не знайдено currentCopyCount/maxCopyCount "
+                        f"ані t-subtitle2 з N/M у HTML.",
+                        flush=True,
+                    )
+                else:
+                    current, maximum = pair
+                    full = current >= maximum
+                    status = "ЗАПОВНЕНО" if full else "Є ВІЛЬНІ МІСЦЯ"
+                    print(
+                        f"[{ts}] {lead_id}  {current}/{maximum} — {status}",
+                        flush=True,
+                    )
+                    if not full and (
+                        prev_full[lead_id] is None or prev_full[lead_id]
+                    ):
+                        send_telegram_message(
+                            f"Binance Copy Trading (лід <code>{lead_id}</code>): "
+                            f"є вільні місця <b>{current}/{maximum}</b>\n"
+                            f'<a href="{page_url}">Відкрити ліда</a>'
+                        )
+                    prev_full[lead_id] = full
+            except subprocess.TimeoutExpired:
                 print(
-                    f"[{ts}] Не знайдено currentCopyCount/maxCopyCount у JSON "
-                    f"ані t-subtitle2 з N/M у HTML.",
+                    f"[{ts}] {lead_id} — ітерація перевищила "
+                    f"{ITERATION_TIMEOUT_SEC:.0f} с, наступний лід…",
                     flush=True,
                 )
-            else:
-                current, maximum = pair
-                full = current >= maximum
-                status = "ЗАПОВНЕНО" if full else "Є ВІЛЬНІ МІСЦЯ"
-                print(f"[{ts}] {current}/{maximum} — {status}", flush=True)
-                if not full and (prev_full is None or prev_full):
-                    send_telegram_message(
-                        f"Binance Copy Trading: є вільні місця <b>{current}/{maximum}</b>\n"
-                        f'<a href="{URL}">Відкрити ліда</a>'
-                    )
-                prev_full = full
-        except subprocess.TimeoutExpired:
-            print(
-                f"[{ts}] Ітерація перевищила {ITERATION_TIMEOUT_SEC:.0f} с — "
-                f"наступна через {interval} с.",
-                flush=True,
-            )
-        except FetchTimeoutError:
-            print(f"[{ts}] Timeout Binance сторінки, повтор через {interval} с.", flush=True)
-        except Exception as e:
-            print(f"[{ts}] Помилка: {e}", flush=True)
+            except FetchTimeoutError:
+                print(
+                    f"[{ts}] {lead_id} — timeout Binance сторінки, наступний лід…",
+                    flush=True,
+                )
+            except Exception as e:
+                print(f"[{ts}] {lead_id} — помилка: {e}", flush=True)
 
         time.sleep(interval)
 
