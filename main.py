@@ -21,14 +21,19 @@ LEADS: list[tuple[str, str]] = [
         # "4751838302089254401",
         # "https://www.binance.com/ru/copy-trading/lead-details/4751838302089254401",
     # ),
-    (
-        "4112571362754486785",
-        "https://www.binance.com/ru/copy-trading/lead-details/4112571362754486785"
-    ),
+    # (
+    #     "4112571362754486785",
+    #     "https://www.binance.com/ru/copy-trading/lead-details/4112571362754486785"
+    # ),
     (
         "4944132044517674496",
         "https://www.binance.com/ru/copy-trading/lead-details/4944132044517674496"
     ),
+    (
+        "4986873686798595584",
+        "https://www.binance.com/ru/copy-trading/lead-details/4986873686798595584"
+    )
+        
     # (
     #     "4532994172262753536",
     #     "https://www.binance.com/ru/copy-trading/lead-details/4532994172262753536"
