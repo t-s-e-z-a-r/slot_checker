@@ -25,6 +25,10 @@ LEADS: list[tuple[str, str]] = [
         "4944132044517674496",
         "https://www.binance.com/ru/copy-trading/lead-details/4944132044517674496"
     ),   
+    (
+        "4959039539940441856", 
+        "https://www.binance.com/ru/copy-trading/lead-details/4959039539940441856"
+    ),    
     # (
     #     "4532994172262753536",
     #     "https://www.binance.com/ru/copy-trading/lead-details/4532994172262753536"
